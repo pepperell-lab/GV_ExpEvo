@@ -1,0 +1,5 @@
+Bootstrap: docker
+From: condaforge/mambaforge
+
+%post
+	mamba install -c bioconda -c conda-forge metagenome-atlas=2.18.2

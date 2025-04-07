@@ -1,0 +1,28 @@
+# apptainer.sub
+
+# Provide HTCondor with the name of your .sif file and universe information
+# (`universe = container` is optional as long as `container_image` is specified)
+
+universe = container
+
+executable = atlas.sh
+container_image = file:///staging/mtopf/atlas.sif
+arguments = $(mg)
+
+#transfer_input_files = file:///staging/mtopf/$(metagenome)
+
+log = $(mg).log
+error = $(mg).err
+output = $(mg).out
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+
+# Make sure you request enough disk for the container image in addition to your other input files. 
+##make sure you have access to staging. 
+Requirements = (Target.HasCHTCStaging == true)
+request_cpus = 1
+request_memory = 100GB
+request_disk = 100GB      
+
+
+queue mg from samples.txt

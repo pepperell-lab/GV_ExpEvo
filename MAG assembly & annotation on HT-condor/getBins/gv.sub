@@ -1,0 +1,20 @@
+universe = vanilla
+
+executable = gv.sh
+
+output = gv.out
+error = gv.err
+log = gv.log
+
+transfer_executable = TRUE
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files = file:///staging/mtopf/BAT/bin2class.tar.gz, getGV_CAT.py
+transfer_output_files = catBifido.txt 
+
+Requirements = (Target.HasCHTCStaging == true)
+request_cpus = 1
+request_memory = 1GB
+request_disk = 1GB
+
+queue
