@@ -1,0 +1,171 @@
+---
+title: "findingConvergentHits"
+output: html_document
+date: "2023-06-29"
+---
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+```
+
+##this script inputs the pooled and single seq data and outputs a list of hits which occur more than one time in a gene. Hits that occur in the same strain in both pooled and single sequencing are filtered out. 
+
+#Note that the data directory is hard-coded and should be modified.
+
+assumptions: 
+- filters out all deletions.
+- hits that occur in the same strain and both pooled and single seq should be filtered out.
+- a hit is counted if it changes in allele frequency by >10% 
+
+this script is specifically tuned to count hits, not for allelic trajectories. Some allelic trajectories present in the data will be filtered out for one reason or another. 
+
+
+```{r, include= FALSE, echo = FALSE}
+##setup
+library(tidyverse)
+
+#read in 10% frequency data
+data_dir = "~/data/gvaginalis_expEvo/2023.04.19_Final_alleleTrajectories/Allele_frequency/"
+data_list <- fs::dir_ls(data_dir, regexp = ".csv$")
+
+#return a single data frame
+my_data <- data_list %>% 
+    purrr::map_dfr(read_csv, show_col_types = FALSE, .id = "source") %>% 
+    dplyr::mutate(source = stringr::str_replace(source, "file/path", ""))
+
+#remove "source" column, add column specifying the filtering frequency of the data
+my_data$source <- NULL
+my_data$freq <- 10
+
+#read in 30% frequency data
+freq30 <- read_csv("~/data/gvaginalis_expEvo/2023.04.19_Final_alleleTrajectories/2023.10.10_combinedData_30freq.csv")
+
+#remove "file_id" column, add column specifying the filtering frequency of the data
+freq30$file_id <- NULL
+freq30$freq <- 30
+
+#combine
+all_data <- rbind(freq30, my_data)
+```
+
+```{r reading, include=FALSE}
+
+#add columns to specify the type of data: pooled or single sequencing, the strain of each entry (gv2 or 14018), and the growth condition (biofilm or planktonic)
+all_data <-  all_data %>% 
+  mutate(type = case_when(grepl("POOL", ID) ~ "pool", TRUE ~ "single"), 
+         strain = case_when(grepl("GV2", ID) ~ "GV2", grepl("GV14018", ID) ~ "GV14018"), 
+         condition = case_when(grepl("2022-04-12", ID) ~ "Planktonic", TRUE ~ "Biofilm"))
+
+#select the columns I want
+freq <- all_data %>% 
+  select(pos, ID, ref, alt, INFO, Anc, "0", "5", "6", "7", "8","9", "10", annot, strain, condition, type, freq)
+                        
+# Clean up ID column
+freq$ID <- gsub("POOL_", "", freq$ID)
+freq$ID <- gsub("Ssapro", "", freq$ID)
+
+#remove deletions
+freq <- freq %>% filter(alt != "DEL")
+#write_csv(freq, "~/2023.04.19_Final_alleleTrajectories/2023.10.03_allHits.csv")
+
+##parse the snpEff results to get a gene call that is simpler
+split_info <- strsplit(freq$INFO, "\\|") 
+fourth_element <- sapply(split_info, "[[", 4)
+gene <- as.character(fourth_element)
+freq$gene <- gene
+  
+#save the expanded data file 
+#write_csv(freq, "~/data/gvaginalis_expEvo/2023.04.19_Final_alleleTrajectories/2023.10.10_frequencies.csv")
+saveRDS(freq,"~/data/gvaginalis_expEvo/2023.04.19_Final_alleleTrajectories/freq")
+```
+
+Start here with the file
+```{r} 
+freq <- readRDS("~/data/gvaginalis_expEvo/finding_convergentHits/2023.04.19_FindingConvergentHits//freq")
+
+# Concatenate hits so that if a hit appears at the same position in the same ID, it is only counted once. This removes variants present that are in both POOL and Single data of the same frequency
+freqs_filtered <- freq[!duplicated(freq[, c("pos", "ID", "freq")]), ]
+freq10_filtered <- freqs_filtered %>% filter(freq == 10)
+freq30_filtered <- freqs_filtered %>% filter(freq == 30)
+
+```
+
+Hits where the ancestor is invariant.
+No hits went from freq = 100 to freq = 0
+```{r}
+towrite_data <- "~/data/gvaginalis_expEvo/finding_convergentHits/findingConvergentHits.csv"
+towrite_genic_table <- "~/data/gvaginalis_expEvo/finding_convergentHits/genic_table.csv"
+towrite_intergenic_table <- "~/data/gvaginalis_expEvo/finding_convergentHits/intergenic_table.csv"
+
+
+#count up all the hits within the same strain (GV2 or 14018) and Condition (biofilm or planktonic)
+fixed10 <- freq10_filtered %>% filter(Anc == 100 | Anc == 0) %>% ##invariant in the ancestor
+  mutate(gene = gsub("DPDCJFFM_01065", "fas", gene), pos = as.numeric(pos)) %>% ##annotate fas
+  rename(P0 = '0', P5 = '5', P6 = '6', P7 = '7', P8 = '8', P9 = '9', P10 = '10') %>% ##rename passages 
+  filter(P6 >= 95 | P7 >= 95 | P10 >= 95 | duplicated(gene) | duplicated(gene, fromLast = TRUE)) 
+
+fixed10$freq <- NULL
+
+fixed30 <- freq30_filtered %>% filter(Anc == 100 | Anc == 0) %>% 
+  mutate(gene = gsub("DPDCJFFM_01065", "fas", gene), pos = as.numeric(pos)) %>%
+  rename(P0 = '0', P5 = '5', P6 = '6', P7 = '7', P8 = '8', P9 = '9', P10 = '10')
+
+fixed30$freq <- NULL
+new_rows <- anti_join(fixed30, fixed10, by = c("pos", "ID"))
+
+##filter to variants which sweep >95% by the evolved passage, or happen more than once or change in frequency by more than 30%.
+all_hits <- rbind(new_rows, fixed10) %>%
+  mutate(INFO_split = strsplit(INFO, ","),  # Split INFO column by comma
+         first_entry = sapply(INFO_split, function(x) x[1]),  # Extract the first entry
+         variant = case_when(
+           grepl("synonymous_variant", first_entry) ~ "synonymous",
+           grepl("frameshift_variant", first_entry) & grepl("missense_variant", first_entry) ~ "frameshift variant, missense",
+           grepl("frameshift_variant", first_entry) ~ "frameshift variant",
+           grepl("missense_variant", first_entry) ~ "missense",
+           grepl("stop_gained", first_entry) ~ "stop gained",
+           grepl("start_lost", first_entry) ~ "start lost",
+           grepl("upstream_gene_variant", first_entry) ~ "upstream gene variant",
+           grepl("downstream_gene_variant", first_entry) ~ "downstream gene variant",
+           grepl("stop_lost&splice_region_variant", first_entry) ~ "stop lost",
+           TRUE ~ NA_character_
+         )) %>%
+  mutate(genic = case_when(
+    variant == "upstream gene variant" | 
+      variant == "downstream gene variant" ~ "intergenic",
+    TRUE ~ "genic")) %>% 
+  select(-INFO_split, -first_entry)
+
+#genic
+genic_hits <- all_hits %>% 
+  filter(genic == "genic") %>% 
+  group_by(gene, strain, condition) %>%  ##group by strain, gene, and condition, then count up the hits
+  mutate(count= n())
+  
+#intergenic
+intergenic_hits <- all_hits %>% 
+  filter(genic == "intergenic") %>% 
+  group_by(pos, strain, condition) %>% 
+  mutate(count = n()) 
+
+intergenic_table <- intergenic_hits %>% select(pos, strain, condition, count) %>% unique()
+  
+  
+#count up all of the variants by gene, strain, condition and make a little table.
+genic_table <- genic_hits %>% select(gene, strain, condition, count) %>% unique()
+
+#write outputs
+write_csv(all_hits, towrite_data)
+write_csv(genic_table, towrite_table)
+write_csv(intergenic_table, towrite_intergenic_table)
+
+
+```
+
+
+
+
+
+
+
+

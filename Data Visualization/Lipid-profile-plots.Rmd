@@ -1,0 +1,52 @@
+---
+title: "lipidomics-profile"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+source("~/scripts/exportPlot.R")
+```
+
+
+```{r cars}
+lo <- read_csv("~/data/gvaginalis_expEvo/lipidomics//2022.11.01_Lipidomics/GV_lipidomics_data.csv")
+lo <- lo %>% select("lipid_class", "CFS-1-avg", "CFS-2-avg", "CFS-3-avg", "ANC-1-avg")
+lo <- na.omit(lo)
+lol <- gather(lo, key= "condition", value= "value", "CFS-1-avg", "CFS-2-avg", "CFS-3-avg", "ANC-1-avg")
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE} 
+
+##reformat data
+lol$value <- as.numeric(lol$value)
+lol$lipid_class <- as.factor(lol$lipid_class)
+lol$condition <- gsub("CFS",replacement = "Evolved", lol$condition)
+lol$condition <- gsub("1",replacement = "A", lol$condition)
+lol$condition <- gsub("2",replacement = "B", lol$condition)
+lol$condition <- gsub("3",replacement = "C", lol$condition)
+lol$condition <- gsub("ANC-A",replacement = "Ancestor", lol$condition)
+lol$condition <- gsub("-avg", "", lol$condition)
+
+##set colors
+mycols <- colors()[c(461, 509, 114, 610, 118, 72, 579, 142, 261, 542, 471, 11, 128)] 
+
+only_known <- lol %>% filter(lipid_class != "Unknown")
+
+##plot
+lipid.plot <- ggplot(only_known, aes(fill= lipid_class, y=value, x=condition)) + geom_bar(position= "fill", stat= "identity") + theme_classic() + scale_fill_manual(name= "Lipid Class", values = mycols) + ylab("fraction of known lipid profile") + xlab("") + theme(text = element_text(siz= 20))
+
+lipid.plot
+```
+
+```{r}
+#ExportPlot(lipid.plot, "~/data/gvaginalis_expEvo/lipidomics/2022.11.01_Lipidomics/2023.10.16_lipid-plot_onlyKnown", width=7, height=5)
+
+```
+
+
+
