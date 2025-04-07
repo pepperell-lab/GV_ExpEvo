@@ -1,7 +1,7 @@
 # GV_ExpEvo
 Gardnerella vaginalis experimental evolution scripts for publication
 
-*Data visualization*
+**Data visualization**
 R scripts to visualize data
 
 *poolER*
